@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 
 
-
 connection.commit()
 
 # Step 2: Insert data into the table
