@@ -1,6 +1,8 @@
 # PurgePatrol
-Neckarthon 2024
-Challenge: Vergessen lernen - Entwickle digitale Löschkonzepte für KMUs!
+**Neckarthon 2024**
 
-Approach: de-personalizing sensitive data
-=> working example: employee HR data
+Challenge: "Vergessen lernen - Entwickle digitale Löschkonzepte für KMUs!"
+
+**Our approach: de-personalizing sensitive data**
+
+Prototype example: employee HR data 
