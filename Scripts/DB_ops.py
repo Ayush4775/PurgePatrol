@@ -1,104 +1,118 @@
 import sqlite3
-# TODO: also think to delete some special info like Social number in case employee leaves + ofc anonymies it
-from typing import List, Tuple, Dict, Any
+import hashlib
+import random
+import string
 
-#TODO: probably just hard code the connections here instead of always giving connection
 
-def connect_db(db_name: str):
+# Function to connect to the database
+def connect_db(db_name: str = "employee_worktimes.db"):
     return sqlite3.connect(db_name)
 
 
-def create_table(connection, table_name: str, columns: Dict[str, str]):
+# Function to generate a random secret word
+def generate_secret_word(length: int = 12) -> str:
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+
+
+# Function to hash the employee ID with a given secret word
+def generate_hash(employee_id: int, secret_word: str) -> str:
+    data = f"{employee_id}{secret_word}"
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+# Function to remove the employee and anonymize the employee ID occurrences
+def remove_employee(employee_id: int):
+    # Connect to the specified database
+    connection = connect_db()
     cursor = connection.cursor()
-    columns_str = ', '.join([f"{col} {dtype}" for col, dtype in columns.items()])
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_str})")
+
+    # Step 1: Find all occurrences of the employee ID in the 'Employee_id' column
+    cursor.execute(
+        "SELECT COUNT(*) FROM employee_worktimes WHERE Employee_id = ?", (employee_id,)
+    )
+    count = cursor.fetchone()[0]
+
+    # If the employee ID does not exist, exit the function
+    if count == 0:
+        print(f"Employee ID {employee_id} not found in the database.")
+        connection.close()
+        return
+
+    # Step 2: Generate a list of random secret words, one for each occurrence
+    secret_words = [generate_secret_word() for _ in range(count)]
+
+    # Step 3: Generate distinct hashes using the random secret words
+    hashes = [generate_hash(employee_id, secret_word) for secret_word in secret_words]
+
+    # Step 4: Update the 'Employee_id' column with the generated hashes
+    cursor.execute(
+        "SELECT rowid FROM employee_worktimes WHERE Employee_id = ?", (employee_id,)
+    )
+    rows = cursor.fetchall()
+
+    for i, (row_id,) in enumerate(rows):
+        cursor.execute(
+            "UPDATE employee_worktimes SET Employee_id = ? WHERE rowid = ?",
+            (hashes[i], row_id),
+        )
+
+    # Commit the changes and close the connection
     connection.commit()
+    connection.close()
+    print(
+        f"Successfully anonymized {count} occurrences of employee ID {employee_id} using unique random secret words."
+    )
+
+    # Step 5: Retrieve and delete employee data from 'employee_data.db'
+    connection_data = connect_db("employee_data.db")
+    cursor_data = connection_data.cursor()
+
+    # Retrieve the row for the employee_id
+    cursor_data.execute("SELECT * FROM employee_data WHERE `EmpID` = ?", (employee_id,))
+    employee_row = cursor_data.fetchone()
+
+    if not employee_row:
+        print(f"Employee ID {employee_id} not found in 'employee_data.db'.")
+        connection_data.close()
+        return
+
+    # Get the column names from 'employee_data.db'
+    column_names = [description[0] for description in cursor_data.description]
+
+    # Delete the row from 'employee_data.db'
+    cursor_data.execute("DELETE FROM employee_data WHERE `EmpID` = ?", (employee_id,))
+    connection_data.commit()
+    connection_data.close()
+    print(
+        f"Copied and deleted employee data for ID {employee_id} from 'employee_data.db'."
+    )
+
+    # Step 6: Insert the copied data into 'secret_data.db'
+    connection_secret = connect_db("secret_data.db")
+    cursor_secret = connection_secret.cursor()
+
+    # Create the 'secret_data' table if it doesn't exist
+    columns_with_types = ", ".join(
+        [f"{col} TEXT" for col in column_names] + ["secret_words TEXT"]
+    )
+    cursor_secret.execute(
+        f"CREATE TABLE IF NOT EXISTS secret_data ({columns_with_types})"
+    )
+
+    # Prepare the data to insert, including the list of secret words
+    secret_words_str = ",".join(secret_words)
+    employee_data_with_secret = list(employee_row) + [secret_words_str]
+    placeholders = ", ".join(["?" for _ in employee_data_with_secret])
+
+    # Insert the data into 'secret_data.db'
+    cursor_secret.execute(
+        f"INSERT INTO secret_data VALUES ({placeholders})",
+        tuple(employee_data_with_secret),
+    )
+    connection_secret.commit()
+    connection_secret.close()
+    print("Stored employee data and secret words in 'secret_data.db'.")
 
 
-def insert_record(connection, table_name: str, data: Dict[str, Any]):
-    cursor = connection.cursor()
-    columns = ', '.join(data.keys())
-    placeholders = ', '.join(['?' for _ in data])
-    values = tuple(data.values())
-    cursor.execute(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})", values)
-    connection.commit()
-
-
-def update_record(connection, table_name: str, updates: Dict[str, Any], condition: str, condition_params: Tuple):
-    cursor = connection.cursor()
-    updates_str = ', '.join([f"{col} = ?" for col in updates.keys()])
-    values = tuple(updates.values()) + condition_params
-    cursor.execute(f"UPDATE {table_name} SET {updates_str} WHERE {condition}", values)
-    connection.commit()
-
-
-
-def delete_record(connection, table_name: str, condition: str, condition_params: Tuple):
-    cursor = connection.cursor()
-    cursor.execute(f"DELETE FROM {table_name} WHERE {condition}", condition_params)
-    connection.commit()
-
-
-# this is where the magic happens lol
-def remove_employee(connection, employee_id):
-    #TODO: make this function require a password
-    db_name = 'employee_worktimes.db'
-    conn = connect_db(db_name)
-
-    #TODO: Get the keys to replace it with
-    
-
-
-
-
-
-
-
-def fetch_records(connection, table_name: str, columns: List[str] = None, condition: str = None, condition_params: Tuple = ()):
-    cursor = connection.cursor()
-    columns_str = ', '.join(columns) if columns else '*'
-    query = f"SELECT {columns_str} FROM {table_name}"
-    if condition:
-        query += f" WHERE {condition}"
-    cursor.execute(query, condition_params)
-    return cursor.fetchall()
-
-
-
-
-
-# Example usage
-if __name__ == "__main__":
-    # Database setup
-    db_name = 'example.db'
-    conn = connect_db(db_name)
-    
-    # Create table example
-    create_table(conn, 'users', {
-        'id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
-        'name': 'TEXT',
-        'age': 'INTEGER',
-        'email': 'TEXT'
-    })
-    
-    # Insert a record
-    insert_record(conn, 'users', {
-        'name': 'Alice',
-        'age': 25,
-        'email': 'alice@example.com'
-    })
-
-    # Update a record
-    update_record(conn, 'users', {
-        'age': 26
-    }, 'name = ?', ('Alice',))
-
-    # Fetch and print records
-    users = fetch_records(conn, 'users')
-    print("Users:", users)
-
-    # Delete a record
-    delete_record(conn, 'users', 'name = ?', ('Alice',))
-
-    # Close the connection
-    conn.close()
+# Example usage:
+remove_employee(employee_id=2002)
